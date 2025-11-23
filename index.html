@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Loan Manager</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // --- Icons (SVG Components) ---
+        const Icon = ({ path, className }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                {path}
+            </svg>
+        );
+
+        const Icons = {
+            LayoutDashboard: <path d="M7 9a4.7 4.7 0 0 1 4 4v2m-4-6v12m8-12v12m-4 0h4" />, // Simplified specific path for demo
+            Home: <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />,
+            Users: <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M16 3.13a4 4 0 0 1 0 7.75 M23 21v-2a4 4 0 0 0-3-3.87" />,
+            Wallet: <path d="M21 12V7H5a2 2 0 0 1 0-4h14v4 M3 5v14a2 2 0 0 0 2 2h16v-5 M18 12a2 2 0 0 0 0 4h4v-4z" />,
+            Plus: <path d="M12 5v14 M5 12h14" />,
+            Search: <path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35" />,
+            CheckCircle: <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14 M22 4L12 14.01l-3-3" />,
+            XCircle: <path d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />,
+            Clock: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />, // Shield-ish for pending
+            Trash: <path d="M3 6h18 M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />,
+            DollarSign: <path d="M12 1v22 M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />,
+            PieChart: <path d="M21.21 15.89A10 10 0 1 1 8 2.83 M22 12A10 10 0 0 0 12 2v10z" />
+        };
+
+        const IconComp = ({ name, size = 20, className = "" }) => {
+            return (
+                <svg 
+                    xmlns="http://www.w3.org/2000/svg" 
+                    width={size} 
+                    height={size} 
+                    viewBox="0 0 24 24" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    strokeWidth="2" 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    className={className}
+                >
+                    {Icons[name] || Icons.Home}
+                </svg>
+            );
+        };
+
+        // --- Helper Functions ---
+        const formatCurrency = (amount) => {
+            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+        };
+
+        const calculateMonthlyPayment = (principal, annualRate, months) => {
+            if (annualRate === 0) return principal / months;
+            const monthlyRate = annualRate / 100 / 12;
+            return (principal * monthlyRate * Math.pow(1 + monthlyRate, months)) / (Math.pow(1 + monthlyRate, months) - 1);
+        };
+
+        const generateId = () => Math.random().toString(36).substr(2, 9);
+
+        // --- Mock Data & Initial State ---
+        const INITIAL_LOANS = [
+            { id: '1', applicant: 'Sarah Jenkins', amount: 15000, rate: 5.5, term: 24, startDate: '2023-10-15', status: 'Active', type: 'Personal' },
+            { id: '2', applicant: 'Michael Ross', amount: 250000, rate: 4.2, term: 360, startDate: '2023-08-01', status: 'Active', type: 'Mortgage' },
+            { id: '3', applicant: 'TechStart Inc.', amount: 50000, rate: 8.0, term: 12, startDate: '2023-11-01', status: 'Pending', type: 'Business' },
+            { id: '4', applicant: 'David Chen', amount: 5000, rate: 0, term: 6, startDate: '2023-09-10', status: 'Paid', type: 'Personal' },
+        ];
+
+        // --- Components ---
+
+        const Sidebar = ({ currentView, setView }) => {
+            const menuItems = [
+                { id: 'dashboard', label: 'Dashboard', icon: 'PieChart' },
+                { id: 'loans', label: 'All Loans', icon: 'Users' },
+                { id: 'new-loan', label: 'New Application', icon: 'Plus' },
+            ];
+
+            return (
+                <div className="w-64 bg-slate-900 text-white h-screen fixed left-0 top-0 flex flex-col shadow-2xl z-10">
+                    <div className="p-6 flex items-center gap-3 border-b border-slate-800">
+                        <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center">
+                            <IconComp name="DollarSign" className="text-white" />
+                        </div>
+                        <h1 className="text-xl font-bold tracking-tight">Loan Application</h1>
+                    </div>
+                    <nav className="flex-1 p-4 space-y-2">
+                        {menuItems.map(item => (
+                            <button
+                                key={item.id}
+                                onClick={() => setView(item.id)}
+                                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
+                                    currentView === item.id 
+                                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20' 
+                                    : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                                }`}
+                            >
+                                <IconComp name={item.icon} />
+                                <span className="font-medium">{item.label}</span>
+                            </button>
+                        ))}
+                    </nav>
+                    <div className="p-6 border-t border-slate-800">
+                        <div className="bg-slate-800 rounded-xl p-4">
+                            <p className="text-xs text-slate-400 mb-1">System Status</p>
+                            <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+                                <span className="text-sm font-semibold text-white">Online</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const StatCard = ({ title, value, subtext, icon, color }) => (
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300">
+                <div className="flex justify-between items-start">
+                    <div>
+                        <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
+                        <h3 className="text-2xl font-bold text-gray-900">{value}</h3>
+                        {subtext && <p className="text-xs text-gray-400 mt-2">{subtext}</p>}
+                    </div>
+                    <div className={`p-3 rounded-xl ${color}`}>
+                        <IconComp name={icon} className="text-white" />
+                    </div>
+                </div>
+            </div>
+        );
+
+        const Dashboard = ({ loans }) => {
+            const stats = useMemo(() => {
+                const active = loans.filter(l => l.status === 'Active');
+                const pending = loans.filter(l => l.status === 'Pending');
+                const totalActive = active.reduce((acc, curr) => acc + parseFloat(curr.amount), 0);
+                
+                // Rough estimation of interest for dashboard
+                const estimatedInterest = active.reduce((acc, curr) => {
+                    const monthly = calculateMonthlyPayment(curr.amount, curr.rate, curr.term);
+                    return acc + ((monthly * curr.term) - curr.amount);
+                }, 0);
+
+                return {
+                    activeCount: active.length,
+                    pendingCount: pending.length,
+                    totalVolume: totalActive,
+                    projectedYield: estimatedInterest
+                };
+            }, [loans]);
+
+            return (
+                <div className="space-y-8 animate-fade-in">
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-800">Financial Overview</h2>
+                        <p className="text-gray-500">Welcome back, Administrator.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        <StatCard 
+                            title="Active Capital" 
+                            value={formatCurrency(stats.totalVolume)} 
+                            subtext="+12% from last month"
+                            icon="Wallet"
+                            color="bg-emerald-500"
+                        />
+                        <StatCard 
+                            title="Projected Interest" 
+                            value={formatCurrency(stats.projectedYield)} 
+                            subtext="Total term yield"
+                            icon="PieChart"
+                            color="bg-blue-500"
+                        />
+                        <StatCard 
+                            title="Active Loans" 
+                            value={stats.activeCount} 
+                            subtext={`${stats.pendingCount} pending approval`}
+                            icon="Users"
+                            color="bg-violet-500"
+                        />
+                        <StatCard 
+                            title="Risk Ratio" 
+                            value="1.2%" 
+                            subtext="Low Risk Level"
+                            icon="Clock"
+                            color="bg-rose-500"
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                            <h3 className="text-lg font-bold text-gray-800 mb-4">Recent Activity</h3>
+                            <div className="space-y-4">
+                                {loans.slice(0, 5).map(loan => (
+                                    <div key={loan.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-xl">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-10 h-10 rounded-full bg-white border border-gray-200 flex items-center justify-center font-bold text-gray-600">
+                                                {loan.applicant.charAt(0)}
+                                            </div>
+                                            <div>
+                                                <p className="font-medium text-gray-900">{loan.applicant}</p>
+                                                <p className="text-xs text-gray-500">{loan.type} Loan • {loan.startDate}</p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="font-bold text-gray-900">{formatCurrency(loan.amount)}</p>
+                                            <span className={`text-xs px-2 py-1 rounded-full ${
+                                                loan.status === 'Active' ? 'bg-emerald-100 text-emerald-700' :
+                                                loan.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                                                'bg-gray-100 text-gray-700'
+                                            }`}>
+                                                {loan.status}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl shadow-lg p-6 text-white">
+                            <h3 className="text-lg font-bold mb-4">Quick Actions</h3>
+                            <div className="space-y-3">
+                                <button className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 rounded-xl flex items-center justify-center gap-2 transition-colors">
+                                    <IconComp name="Plus" size={18} /> Generate Report
+                                </button>
+                                <button className="w-full py-3 px-4 bg-slate-700 hover:bg-slate-600 rounded-xl flex items-center justify-center gap-2 transition-colors">
+                                    <IconComp name="Users" size={18} /> Manage Users
+                                </button>
+                                <div className="mt-8 p-4 bg-slate-800/50 rounded-xl border border-slate-700">
+                                    <p className="text-sm text-slate-400">System Version</p>
+                                    <p className="font-mono text-xs mt-1">v2.4.0-stable</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const LoanList = ({ loans, updateStatus, deleteLoan }) => {
+            const [search, setSearch] = useState('');
+            const [filter, setFilter] = useState('All');
+
+            const filteredLoans = loans.filter(loan => {
+                const matchesSearch = loan.applicant.toLowerCase().includes(search.toLowerCase());
+                const matchesFilter = filter === 'All' || loan.status === filter;
+                return matchesSearch && matchesFilter;
+            });
+
+            return (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <h2 className="text-xl font-bold text-gray-800">Loan Directory</h2>
+                        <div className="flex gap-3">
+                            <div className="relative">
+                                <IconComp name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                                <input 
+                                    type="text" 
+                                    placeholder="Search applicants..." 
+                                    className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                />
+                            </div>
+                            <select 
+                                className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                                value={filter}
+                                onChange={(e) => setFilter(e.target.value)}
+                            >
+                                <option value="All">All Status</option>
+                                <option value="Active">Active</option>
+                                <option value="Pending">Pending</option>
+                                <option value="Paid">Paid</option>
+                                <option value="Rejected">Rejected</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                                    <th className="p-6 font-semibold">Applicant</th>
+                                    <th className="p-6 font-semibold">Amount</th>
+                                    <th className="p-6 font-semibold">Term/Rate</th>
+                                    <th className="p-6 font-semibold">Monthly Payment</th>
+                                    <th className="p-6 font-semibold">Status</th>
+                                    <th className="p-6 font-semibold text-right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {filteredLoans.map(loan => {
+                                    const monthly = calculateMonthlyPayment(loan.amount, loan.rate, loan.term);
+                                    return (
+                                        <tr key={loan.id} className="hover:bg-gray-50 transition-colors">
+                                            <td className="p-6">
+                                                <div className="font-medium text-gray-900">{loan.applicant}</div>
+                                                <div className="text-xs text-gray-500">{loan.type} • ID: #{loan.id.substr(0,4)}</div>
+                                            </td>
+                                            <td className="p-6 font-medium text-gray-900">
+                                                {formatCurrency(loan.amount)}
+                                            </td>
+                                            <td className="p-6 text-sm text-gray-600">
+                                                {loan.term}mo @ {loan.rate}%
+                                            </td>
+                                            <td className="p-6 font-bold text-emerald-600">
+                                                {formatCurrency(monthly)}
+                                            </td>
+                                            <td className="p-6">
+                                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                                    loan.status === 'Active' ? 'bg-emerald-100 text-emerald-700' :
+                                                    loan.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
+                                                    loan.status === 'Paid' ? 'bg-blue-100 text-blue-700' :
+                                                    'bg-red-100 text-red-700'
+                                                }`}>
+                                                    {loan.status}
+                                                </span>
+                                            </td>
+                                            <td className="p-6">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    {loan.status === 'Pending' && (
+                                                        <>
+                                                            <button 
+                                                                onClick={() => updateStatus(loan.id, 'Active')}
+                                                                className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg" 
+                                                                title="Approve"
+                                                            >
+                                                                <IconComp name="CheckCircle" size={18} />
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => updateStatus(loan.id, 'Rejected')}
+                                                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg" 
+                                                                title="Reject"
+                                                            >
+                                                                <IconComp name="XCircle" size={18} />
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                    {loan.status === 'Active' && (
+                                                        <button 
+                                                            onClick={() => updateStatus(loan.id, 'Paid')}
+                                                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" 
+                                                            title="Mark Paid"
+                                                        >
+                                                            <IconComp name="CheckCircle" size={18} />
+                                                        </button>
+                                                    )}
+                                                    <button 
+                                                        onClick={() => deleteLoan(loan.id)}
+                                                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                                                        title="Delete"
+                                                    >
+                                                        <IconComp name="Trash" size={18} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                                {filteredLoans.length === 0 && (
+                                    <tr>
+                                        <td colSpan="6" className="p-12 text-center text-gray-400">
+                                            No loans found matching your criteria.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        };
+
+        const CreateLoan = ({ onSave, onCancel }) => {
+            const [formData, setFormData] = useState({
+                applicant: '',
+                amount: '',
+                rate: 5.0,
+                term: 12,
+                type: 'Personal',
+                startDate: new Date().toISOString().split('T')[0]
+            });
+
+            const [preview, setPreview] = useState(0);
+
+            useEffect(() => {
+                const p = parseFloat(formData.amount) || 0;
+                const r = parseFloat(formData.rate) || 0;
+                const t = parseFloat(formData.term) || 1;
+                setPreview(calculateMonthlyPayment(p, r, t));
+            }, [formData]);
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if(!formData.applicant || !formData.amount) return;
+                onSave(formData);
+            };
+
+            return (
+                <div className="max-w-2xl mx-auto">
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div className="p-6 border-b border-gray-100 bg-gray-50">
+                            <h2 className="text-xl font-bold text-gray-800">New Loan Application</h2>
+                            <p className="text-sm text-gray-500 mt-1">Enter borrower details to calculate terms.</p>
+                        </div>
+                        
+                        <form onSubmit={handleSubmit} className="p-8 space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="col-span-2">
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Applicant Name</label>
+                                    <input 
+                                        type="text" 
+                                        required
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                        placeholder="e.g. John Doe"
+                                        value={formData.applicant}
+                                        onChange={e => setFormData({...formData, applicant: e.target.value})}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Loan Amount ($)</label>
+                                    <input 
+                                        type="number" 
+                                        required
+                                        min="1"
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                        value={formData.amount}
+                                        onChange={e => setFormData({...formData, amount: e.target.value})}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Loan Type</label>
+                                    <select 
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-emerald-500 focus:border-transparent bg-white"
+                                        value={formData.type}
+                                        onChange={e => setFormData({...formData, type: e.target.value})}
+                                    >
+                                        <option value="Personal">Personal</option>
+                                        <option value="Business">Business</option>
+                                        <option value="Mortgage">Mortgage</option>
+                                        <option value="Auto">Auto</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Interest Rate (Annual %)</label>
+                                    <input 
+                                        type="number" 
+                                        step="0.1"
+                                        required
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                        value={formData.rate}
+                                        onChange={e => setFormData({...formData, rate: e.target.value})}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Term Length (Months)</label>
+                                    <input 
+                                        type="number" 
+                                        required
+                                        className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                                        value={formData.term}
+                                        onChange={e => setFormData({...formData, term: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="bg-emerald-50 rounded-xl p-6 mt-6 border border-emerald-100">
+                                <p className="text-emerald-600 font-medium text-sm uppercase tracking-wide">Estimated Monthly Payment</p>
+                                <p className="text-3xl font-bold text-emerald-700 mt-1">{formatCurrency(preview)}</p>
+                                <p className="text-emerald-600/70 text-xs mt-2">Total Payment: {formatCurrency(preview * formData.term)}</p>
+                            </div>
+
+                            <div className="flex items-center gap-4 pt-4">
+                                <button 
+                                    type="button"
+                                    onClick={onCancel}
+                                    className="flex-1 px-6 py-3 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    type="submit"
+                                    className="flex-1 px-6 py-3 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 shadow-lg shadow-emerald-600/20 transition-all transform hover:scale-[1.02]"
+                                >
+                                    Submit Application
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- Main App Container ---
+
+        const App = () => {
+            const [view, setView] = useState('dashboard');
+            const [loans, setLoans] = useState(() => {
+                const saved = localStorage.getItem('nexus_loans');
+                return saved ? JSON.parse(saved) : INITIAL_LOANS;
+            });
+
+            useEffect(() => {
+                localStorage.setItem('nexus_loans', JSON.stringify(loans));
+            }, [loans]);
+
+            const handleCreateLoan = (data) => {
+                const newLoan = {
+                    ...data,
+                    id: generateId(),
+                    status: 'Pending',
+                    amount: parseFloat(data.amount),
+                    rate: parseFloat(data.rate),
+                    term: parseInt(data.term)
+                };
+                setLoans([newLoan, ...loans]);
+                setView('loans');
+            };
+
+            const updateLoanStatus = (id, status) => {
+                setLoans(loans.map(l => l.id === id ? { ...l, status } : l));
+            };
+
+            const deleteLoan = (id) => {
+                if(confirm('Are you sure you want to delete this record?')) {
+                    setLoans(loans.filter(l => l.id !== id));
+                }
+            };
+
+            return (
+                <div className="flex min-h-screen bg-slate-50">
+                    <Sidebar currentView={view} setView={setView} />
+                    
+                    <main className="ml-64 flex-1 p-8">
+                        <header className="flex justify-between items-center mb-8">
+                            <div>
+                                <h1 className="text-2xl font-bold text-gray-900 capitalize">
+                                    {view.replace('-', ' ')}
+                                </h1>
+                                <p className="text-sm text-gray-500">{new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full shadow-sm border border-gray-100">
+                                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center">
+                                        <IconComp name="Users" size={14} />
+                                    </div>
+                                    <span className="text-sm font-medium text-gray-700">Admin User</span>
+                                </div>
+                            </div>
+                        </header>
+
+                        {view === 'dashboard' && <Dashboard loans={loans} />}
+                        {view === 'loans' && <LoanList loans={loans} updateStatus={updateLoanStatus} deleteLoan={deleteLoan} />}
+                        {view === 'new-loan' && <CreateLoan onSave={handleCreateLoan} onCancel={() => setView('dashboard')} />}
+                    </main>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
